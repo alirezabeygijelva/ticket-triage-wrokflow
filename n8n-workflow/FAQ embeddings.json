@@ -1,0 +1,155 @@
+{
+  "name": "FAQ embeddings",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -288,
+        -80
+      ],
+      "id": "759f506b-7451-41cc-b4a8-d37c3952f160",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "const faqs = [\n  { question: \"What is your refund policy?\", answer: \"We offer full refunds within 30 days of purchase. Contact support with your order number to start the process.\" },\n  { question: \"How do I reset my password?\", answer: \"Click \\\"Forgot Password\\\" on the login page and follow the link sent to your registered email.\" },\n  { question: \"How do I cancel my subscription?\", answer: \"Go to Account Settings then Subscription then Cancel Plan. Your access continues until the end of the billing period.\" },\n  { question: \"Why was I charged twice?\", answer: \"Duplicate charges are usually a temporary authorization hold that clears in 3-5 business days. If it persists, contact billing support with the transaction IDs.\" },\n  { question: \"How do I update my payment method?\", answer: \"Go to Account Settings then Billing then Payment Methods to add or update a card.\" },\n  { question: \"Do you offer a free trial?\", answer: \"Yes, all plans include a 14-day free trial with no credit card required.\" },\n  { question: \"How do I download my invoice?\", answer: \"Invoices are available under Account Settings then Billing then Invoice History.\" },\n  { question: \"The app keeps crashing when I upload a file. What should I do?\", answer: \"Try uploading a file smaller than 10MB first. If the issue persists, clear your browser cache or try a different browser.\" },\n  { question: \"Why can't I log in even with the correct password?\", answer: \"Check if Caps Lock is on, or try the Forgot Password flow to reset it. If the issue continues, your account may be temporarily locked after failed attempts.\" },\n  { question: \"How do I enable two-factor authentication?\", answer: \"Go to Account Settings then Security then Two-Factor Authentication and follow the setup steps.\" },\n  { question: \"Can I use the app on multiple devices?\", answer: \"Yes, your account syncs across devices as long as you're logged in with the same credentials.\" },\n  { question: \"How do I export my data?\", answer: \"Go to Account Settings then Data then Export, which generates a downloadable CSV or JSON file of your account data.\" },\n  { question: \"Is there an API available?\", answer: \"Yes, API documentation and keys are available under Developer Settings.\" },\n  { question: \"How do I delete my account permanently?\", answer: \"Go to Account Settings then Danger Zone then Delete Account. This action is irreversible and removes all associated data.\" },\n  { question: \"Why is the app running slowly?\", answer: \"Slow performance is often caused by browser extensions or an outdated browser version. Try disabling extensions or updating your browser.\" },\n  { question: \"Do you offer discounts for students or nonprofits?\", answer: \"Yes, we offer a 20% discount for verified students and registered nonprofits. Apply through the Discounts page.\" },\n  { question: \"How do I change my email address?\", answer: \"Go to Account Settings then Profile then Email, enter the new address, and confirm via the verification link sent to it.\" },\n  { question: \"What happens to my data if I cancel my subscription?\", answer: \"Your data is retained for 30 days after cancellation in case you resubscribe, then permanently deleted.\" },\n  { question: \"Can I upgrade or downgrade my plan anytime?\", answer: \"Yes, plan changes take effect immediately and billing is prorated for the current cycle.\" },\n  { question: \"How do I contact support outside business hours?\", answer: \"Submit a ticket anytime through the support form. Our team responds within 24 hours, including weekends.\" }\n];\n\nreturn faqs.map(faq => ({ json: faq }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        -80
+      ],
+      "id": "84263340-53bd-4635-b060-2305eb884398",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "tableName": {
+          "__rl": true,
+          "value": "faq",
+          "mode": "list",
+          "cachedResultName": "faq"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        160,
+        -80
+      ],
+      "id": "ddb9cf4a-863e-48ef-b45a-75b70100b008",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase API"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        160,
+        128
+      ],
+      "id": "742c93f5-d1ae-49e4-90fe-3e23cdaf9ebd",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_ME_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.question }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "answer",
+                "value": "={{ $json.answer }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        128
+      ],
+      "id": "acaaf350-ac7a-43a8-a7f0-88554c6d5ab4",
+      "name": "Default Data Loader"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "id": "faq-embeddings-workflow",
+  "tags": []
+}

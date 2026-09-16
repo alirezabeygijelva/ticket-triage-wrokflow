@@ -1,0 +1,2863 @@
+{
+  "name": "Ticket Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/new-ticket",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -10016,
+        3328
+      ],
+      "id": "c7690cb7-c833-4b0a-9230-36ae73d4d1c1",
+      "name": "Webhook",
+      "webhookId": "new-ticket-webhook"
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -10016,
+        3520
+      ],
+      "id": "eb1ac670-a1d4-4532-bc1a-5764b326f608",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_ME_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        -10016,
+        3728
+      ],
+      "id": "3c065feb-2127-465c-9142-b4216b6b26e1",
+      "name": "Telegram Trigger",
+      "webhookId": "telegram-trigger",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d4e2036e-5eda-42f9-b0a2-46fc840e4f5e",
+              "name": "ticket_message",
+              "value": "={{ $json.body.ticket_message }}",
+              "type": "string"
+            },
+            {
+              "id": "aa128c46-e1e2-4562-8da0-92a45fde3ec7",
+              "name": "customer_email",
+              "value": "={{ $json.body.customer_email }}",
+              "type": "string"
+            },
+            {
+              "id": "83daf504-a22e-42e0-9567-7a0c73aa22cd",
+              "name": "contact_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "0e21ea1f-ff8a-41f7-91b2-62fc97a66f84",
+              "name": "channel",
+              "value": "website",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -9696,
+        3328
+      ],
+      "id": "48f3115f-71b8-47e8-b60a-ea7c4bd65b34",
+      "name": "Data Website"
+    },
+    {
+      "parameters": {
+        "jsCode": "function decodeHtml(value) {\n  return String(value || \"\")\n    .replace(/&lt;/gi, \"<\")\n    .replace(/&gt;/gi, \">\")\n    .replace(/&amp;/gi, \"&\")\n    .replace(/&#39;/g, \"'\")\n    .replace(/&quot;/gi, '\"');\n}\n\nfunction htmlToText(html) {\n  return decodeHtml(String(html || \"\"))\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, \" \")\n    .replace(/<blockquote[\\s\\S]*?<\\/blockquote>/gi, \"\\n\")\n    .replace(/<br\\s*\\/?>/gi, \"\\n\")\n    .replace(/<\\/(p|div|tr|li|h[1-6])>/gi, \"\\n\")\n    .replace(/<[^>]+>/g, \" \")\n    .replace(/[ \\t]+\\n/g, \"\\n\")\n    .replace(/\\n{3,}/g, \"\\n\\n\")\n    .trim();\n}\n\nfunction stripQuotedEmail(raw) {\n  let text = decodeHtml(raw).replace(/\\u00a0/g, \" \");\n  const weekday =\n    \"(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)\";\n  const isoThenQuote = text.match(\n    new RegExp(\n      \"^(\\\\d{4}-\\\\d{2}-\\\\d{2}[ T]\\\\d{2}:\\\\d{2}(?::\\\\d{2})?)\\\\s+On\\\\s+\" +\n        weekday +\n        \",\",\n      \"i\",\n    ),\n  );\n  if (isoThenQuote) return isoThenQuote[1].trim();\n\n  const cutPatterns = [\n    new RegExp(\"\\\\sOn\\\\s+\" + weekday + \",[\\\\s\\\\S]*?\\\\bwrote:\", \"i\"),\n    /\\n-{2,}\\s*Original Message\\s*-{2,}/i,\n    /\\n_{5,}\\s*\\nFrom:\\s/i,\n    /\\nFrom:\\s.+\\nSent:\\s/i,\n  ];\n  for (const pattern of cutPatterns) {\n    const idx = text.search(pattern);\n    if (idx > 0) {\n      text = text.slice(0, idx);\n      break;\n    }\n  }\n\n  return text\n    .split(\"\\n\")\n    .filter((line) => !/^\\s*>/.test(line))\n    .join(\"\\n\")\n    .trim();\n}\n\nconst src = $input.first().json;\nconst raw =\n  src.text ||\n  src.textPlain ||\n  src.snippet ||\n  (src.html ? htmlToText(src.html) : \"\") ||\n  \"\";\nconst from = String(src.From || src.from || \"\");\nconst emailMatch = from.match(/<([^>]+)>/);\n\nreturn [\n  {\n    json: {\n      ticket_message: stripQuotedEmail(raw) || String(raw).trim(),\n      customer_email: emailMatch ? emailMatch[1] : from,\n      contact_id: \"\",\n      channel: \"email\",\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -9696,
+        3520
+      ],
+      "id": "17ba1f66-16e3-4897-97d9-a9365e6a07cf",
+      "name": "Data Email"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0142f40d-b302-4ef6-ad67-ea0db13d7755",
+              "name": "ticket_message",
+              "value": "={{ $json.message.text }}",
+              "type": "string"
+            },
+            {
+              "id": "94c7d7ec-6e57-404c-bb40-e2ccc5f5c5eb",
+              "name": "customer_email",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "768df810-c77f-4285-be33-dbd602fb17cb",
+              "name": "contact_id",
+              "value": "={{ String($json.message.chat.id) }}",
+              "type": "string"
+            },
+            {
+              "id": "6d2445af-acb9-4729-8d4b-904124616d54",
+              "name": "channel",
+              "value": "telegram",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -9696,
+        3728
+      ],
+      "id": "b4687fe8-4f8c-44b6-add7-86f5f28604c9",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an intake assistant for a support Ticket Manager. Today's date is {{ $now.format('yyyy-MM-dd') }}, timezone Asia/Istanbul.\n\nYou MUST call the FAQ search tool for every customer message that looks like a question (account, billing, password, subscription, refunds, invoices, technical how-to, product features, etc.). Do this before deciding answer_source.\n\nDecision rules:\n\n1) QUESTION + FAQ tool returns a relevant match (same topic even if wording differs):\n   - intent = \"question\"\n   - answer_source = \"faq\"\n   - reply_if_question = the FAQ answer, briefly rephrased in a natural customer reply\n   - extracted_datetime = null\n\n2) QUESTION + FAQ tool has no relevant match:\n   - intent = \"question\"\n   - answer_source = \"staff_needed\"\n   - reply_if_question = null\n   - extracted_datetime = null\n   - Do NOT invent an answer\n\n3) BOOKING / appointment / meeting request:\n   - intent = \"booking\"\n   - answer_source = \"not_applicable\"\n   - reply_if_question = null\n   - Resolve relative dates using today's date above\n   - extracted_datetime is Asia/Istanbul WALL CLOCK (the clock time the customer said)\n   - Example: \"Monday 14 September 2026 at 10:00\" => \"2026-09-14T10:00:00\"\n   - Do NOT convert to UTC. Do NOT append Z or any timezone offset\n   - If the customer gives no date/time, extracted_datetime = null\n   - If the message includes a quoted email thread (after \"On ... wrote:\" or lines starting with >), ignore the quoted part and use ONLY the latest reply\n   - Prefer an explicit date/time like 2026-09-14 10:30 over relative words such as \"tomorrow\" that appear in quoted history\n\n4) SPAM / ads / irrelevant junk:\n   - intent = \"spam\"\n   - answer_source = \"not_applicable\"\n   - reply_if_question = null\n   - extracted_datetime = null\n\nExamples of FAQ matches (treat as answer_source=faq when the tool returns them):\n- \"How do I reset my password?\" / \"I forgot my password\"\n- \"What's your refund policy?\"\n- \"How do I cancel my subscription?\"\n\nRespond with ONLY valid JSON (no markdown, no commentary):\n{\"intent\":\"booking|question|spam\",\"answer_source\":\"faq|staff_needed|not_applicable\",\"reply_if_question\":\"string or null\",\"extracted_datetime\":\"YYYY-MM-DDTHH:mm:00 or null\"}\n\nCustomer message: {{ $json.ticket_message }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -9328,
+        3440
+      ],
+      "id": "034d1687-b259-4d33-990f-c357c10c185a",
+      "name": "AI Agent",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.6-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -9424,
+        3696
+      ],
+      "id": "bfaba1ad-5a58-475a-8f9d-56fbd15e7740",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_ME_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the FAQ knowledge base for common customer questions.",
+        "tableName": {
+          "__rl": true,
+          "value": "faq",
+          "mode": "list",
+          "cachedResultName": "faq"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        -9248,
+        3680
+      ],
+      "id": "3117416d-1fa6-4ba3-845e-b290cc6ae5f9",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -9248,
+        3840
+      ],
+      "id": "791be55e-9ccb-4104-b08e-85033404259d",
+      "name": "Embeddings Google Gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_ME_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeExtractedDatetime(value) {\n  if (value == null || value === '' || value === 'null') return null;\n  const raw = String(value).trim();\n  const m = raw.match(\n    /^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d+))?(Z|[+-]\\d{2}:?\\d{2})?$/\n  );\n  if (!m) return null;\n  const [, y, mo, d, h, mi, se] = m;\n  const seconds = se || '00';\n  return `${y}-${mo}-${d}T${h}:${mi}:${seconds}+03:00`;\n}\n\n\nfunction getIntake() {\n  for (const name of ['Data Website', 'Data Email', 'Edit Fields']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.ticket_message !== undefined) return d;\n    } catch (e) {}\n  }\n  return {};\n}\nconst raw = $input.first().json.output || $input.first().json.text || ($input.first().json.choices && $input.first().json.choices[0].message.content) || '';\nlet cleaned = String(raw).replace(/```json|```/g, '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = { intent: 'question', answer_source: 'staff_needed', reply_if_question: null, extracted_datetime: null };\n}\nconst intake = getIntake();\nparsed.extracted_datetime = normalizeExtractedDatetime(parsed.extracted_datetime);\nreturn [{ json: { ...intake, ...parsed } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8144,
+        3440
+      ],
+      "id": "1dbb7750-b98f-4fd9-a86d-862b2edfcb9e",
+      "name": "Parse Gemini Response"
+    },
+    {
+      "parameters": {
+        "mode": "load",
+        "tableName": {
+          "__rl": true,
+          "value": "faq",
+          "mode": "list",
+          "cachedResultName": "faq"
+        },
+        "prompt": "={{ $('Data Website').isExecuted ? $('Data Website').item.json.ticket_message : ($('Data Email').isExecuted ? $('Data Email').item.json.ticket_message : $('Edit Fields').item.json.ticket_message) }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        -8896,
+        3680
+      ],
+      "id": "9d10d130-67b6-41ae-81a6-3ee41b3a3180",
+      "name": "Vector Search",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -8896,
+        3872
+      ],
+      "id": "0fad7e46-e96e-4f01-80fb-ee5831452dbd",
+      "name": "Embeddings Google Gemini1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "REPLACE_ME_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "  function getIntake() {\n  for (const name of ['Data Website', 'Data Email', 'Edit Fields']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.ticket_message !== undefined) return d;\n    } catch (e) {}\n  }\n  return {};\n}\nfunction pickFaqFromItem(item) {\n  if (!item || typeof item !== 'object') return null;\n  const content =\n    item.content ||\n    item.pageContent ||\n    item.document?.pageContent ||\n    item.text ||\n    '';\n  const meta = item.metadata || item.document?.metadata || {};\n  const answer =\n    (typeof meta.answer === 'string' && meta.answer) ||\n    (typeof item.answer === 'string' && item.answer) ||\n    '';\n  if (!content && !answer) return null;\n  return { content: String(content || ''), answer: String(answer || '') };\n}\nconst intake = getIntake();\nconst ticket = intake.ticket_message ?? '';\nconst faqs = [];\nfor (const row of $input.all()) {\n  const hit = pickFaqFromItem(row.json);\n  if (hit) faqs.push(hit);\n  if (Array.isArray(row.json?.documents)) {\n    for (const doc of row.json.documents) {\n      const nested = pickFaqFromItem(doc);\n      if (nested) faqs.push(nested);\n    }\n  }\n}\nlet faqBlock;\nif (faqs.length) {\n  const listed = faqs\n    .slice(0, 5)\n    .map((f, i) => `${i + 1}. Q: ${f.content}\\n   A: ${f.answer}`)\n    .join('\\n');\n  faqBlock = [\n    'FAQ candidates from the knowledge base (semantic search):',\n    listed,\n    '',\n    'Matching rules:',\n    '- If ANY candidate is about the same topic as the customer message (paraphrase OK), set answer_source to \"faq\".',\n    '- Put the matching FAQ answer into reply_if_question (you may rephrase briefly).',\n    '- Only use staff_needed when NONE of the candidates are topically relevant.',\n    '- Never invent an answer that is not grounded in a candidate above.',\n  ].join('\\n');\n} else {\n  faqBlock = [\n    'No FAQ candidates were returned by search.',\n    'If the message is a question, set answer_source to \"staff_needed\" and reply_if_question to null.',\n    'If it is a booking request, use intent \"booking\".',\n    'If it is spam, use intent \"spam\".',\n  ].join('\\n');\n}\nconst today = new Date().toISOString().slice(0, 10);\nconst content = [\n  `You are an intake classifier for a support Ticket Manager. Today's date is ${today}, timezone Asia/Istanbul.`,\n  'Return ONLY valid JSON with no markdown and no extra text:',\n  '{\"intent\":\"booking|question|spam\",\"answer_source\":\"faq|staff_needed|not_applicable\",\"reply_if_question\":\"string or null\",\"extracted_datetime\":\"YYYY-MM-DDTHH:mm:00 or null\"}',\n  '',\n  'Rules:',\n  '1) question + relevant FAQ candidate => answer_source \"faq\", reply_if_question = that answer',\n  '2) question + no relevant FAQ => answer_source \"staff_needed\", reply_if_question null',\n  '3) booking/appointment request => intent \"booking\", answer_source \"not_applicable\"',\n  '   - Customer times are Asia/Istanbul wall clock',\n  '   - Example: \"reserve 2026-09-14 13:30:00\" => \"2026-09-14T13:30:00\"',\n  '   - Do NOT convert to UTC. Do NOT append Z or +03:00 or any offset',\n  '   - If no date/time at all => extracted_datetime null',\n  '   - extracted_datetime is Asia/Istanbul WALL CLOCK (the clock time the customer said)',\n  '   - Example: \"Monday 14 September 2026 at 10:00\" => \"2026-09-14T10:00:00\"',\n  '   - Do NOT convert to UTC. Do NOT append Z or any timezone offset',\n  '   - If the customer gives no date/time, extracted_datetime = null',\n  '   - Ignore quoted email threads after On ... wrote: ; use ONLY the latest reply',\n  '   - Prefer an explicit date/time like 2026-09-14 10:30 over relative words such as tomorrow in quoted history',\n  '4) spam/ads => intent \"spam\", answer_source \"not_applicable\"',\n  '',\n  `Customer message: ${ticket}`,\n  '',\n  faqBlock,\n].join('\\n');\nreturn [{\n  json: {\n    ...intake,\n    faq_hit_count: faqs.length,\n    groqBody: {\n      model: 'openai/gpt-oss-120b',\n      messages: [{ role: 'user', content }],\n      temperature: 0,\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8576,
+        3680
+      ],
+      "id": "698ff94a-4540-458b-9fb6-cfaa98d47bdb",
+      "name": "Prepare Groq Body",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.groqBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -8384,
+        3680
+      ],
+      "id": "8256f0b6-403c-4514-a657-287c7cb64f57",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_GROQ_HEADER_AUTH_ID",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeExtractedDatetime(value) {\n  if (value == null || value === '' || value === 'null') return null;\n  const raw = String(value).trim();\n  const m = raw.match(\n    /^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d+))?(Z|[+-]\\d{2}:?\\d{2})?$/\n  );\n  if (!m) return null;\n  const [, y, mo, d, h, mi, se] = m;\n  const seconds = se || '00';\n  return `${y}-${mo}-${d}T${h}:${mi}:${seconds}+03:00`;\n}\n\n\nfunction getIntake() {\n  for (const name of ['Data Website', 'Data Email', 'Edit Fields']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.ticket_message !== undefined) return d;\n    } catch (e) {}\n  }\n  return {};\n}\nconst raw = $input.first().json.choices[0].message.content;\nlet cleaned = String(raw).replace(/```json|```/g, '').trim();\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = { intent: 'question', answer_source: 'staff_needed', reply_if_question: null, extracted_datetime: null };\n}\nconst intake = getIntake();\nparsed.extracted_datetime = normalizeExtractedDatetime(parsed.extracted_datetime);\n\nreturn [{ json: { ...intake, ...parsed } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -8144,
+        3680
+      ],
+      "id": "95a6215c-b8f7-43e1-9ce3-c57f5591de96",
+      "name": "Parse Groq Response"
+    },
+    {
+      "parameters": {
+        "tableId": "tickets",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $json.ticket_message }}"
+            },
+            {
+              "fieldId": "customer_email",
+              "fieldValue": "={{ $json.customer_email || null }}"
+            },
+            {
+              "fieldId": "contact_id",
+              "fieldValue": "={{ $json.contact_id || null }}"
+            },
+            {
+              "fieldId": "channel",
+              "fieldValue": "={{ $json.channel }}"
+            },
+            {
+              "fieldId": "intent",
+              "fieldValue": "={{ $json.intent }}"
+            },
+            {
+              "fieldId": "answer_source",
+              "fieldValue": "={{ $json.answer_source }}"
+            },
+            {
+              "fieldId": "extracted_datetime",
+              "fieldValue": "={{ $json.extracted_datetime || null }}"
+            },
+            {
+              "fieldId": "suggested_reply",
+              "fieldValue": "={{ $json.reply_if_question }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.intent === 'spam' ? 'spam' : ($json.intent === 'booking' ? 'booking_pending' : ($json.answer_source === 'faq' ? 'auto_resolved' : 'pending_staff')) }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "closed",
+              "fieldValue": "={{ $json.next_status === 'auto_resolved' || $json.answer_source === 'faq' }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6720,
+        3568
+      ],
+      "id": "e76f7b01-8064-466f-bdac-90fd1f9be8ab",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5638524a-fbbb-4a09-b741-02ab33d9d56a",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "question",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "8708eb4e-d64e-4f31-b2f3-c8e9e36dbb82",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -5920,
+        3424
+      ],
+      "id": "8b8747eb-3d3a-4438-9899-e37081dd947c",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3f1c5544-d6ec-46ff-bb76-b093e8df3613",
+              "leftValue": "={{ $json.answer_source }}",
+              "rightValue": "faq",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -5520,
+        3104
+      ],
+      "id": "4fe847d9-afb8-4b93-a710-a149e9b73c29",
+      "name": "Answer Source"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b6ed123d-0c96-429a-a4bf-5e93e36f4c81",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -5296,
+        2736
+      ],
+      "id": "acd27cdd-9d67-4e96-99e2-df42256a10da",
+      "name": "FAQ Channel"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a8b8b59a-ad08-4b0d-acdf-f77c8d97f51b",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -5296,
+        3264
+      ],
+      "id": "91d5b5ea-d906-431a-9a70-4db76706946d",
+      "name": "Staff Channel"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ba00a2cf-a318-42cd-ad31-41e77af4d491",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -7952,
+        4336
+      ],
+      "id": "03172ec1-80a2-4973-8a75-699095821bae",
+      "name": "Staff Reply Channel"
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@example.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "Here's your answer",
+        "html": "=<div style=\"font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #f4f5f7; padding: 24px;\"><div style=\"background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);\"><div style=\"background: linear-gradient(135deg, #059669, #047857); padding: 28px 24px; text-align: center;\"><h1 style=\"color: #ffffff; font-size: 20px; margin: 0; font-weight: 600;\">Here's your answer</h1></div><div style=\"padding: 28px 24px;\"><p style=\"color: #374151; font-size: 14px; line-height: 1.6;\">Hi there, we found an answer in our knowledge base:</p><div style=\"background: #ecfdf5; border-radius: 8px; padding: 16px;\"><p style=\"color: #1f2937; font-size: 14px; line-height: 1.6; margin: 0;\">{{ $json.suggested_reply }}</p></div></div></div></div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -5008,
+        2864
+      ],
+      "id": "88d6537d-ef51-4c59-9d0e-4fa90544e3da",
+      "name": "FAQ Email",
+      "webhookId": "907cf174-8bd6-4be9-ade2-ce6d9f946b57",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME_SMTP_CREDENTIAL_ID",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.contact_id }}",
+        "text": "={{ $json.suggested_reply }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -5008,
+        2608
+      ],
+      "id": "59a4ce09-259d-43c9-a7b5-c9a3adcd5c46",
+      "name": "FAQ Telegram",
+      "webhookId": "910dd93f-16f9-4889-ab13-c3b770031a7e",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@example.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "We've received your question",
+        "html": "=<div style=\"font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #f4f5f7; padding: 24px;\"><div style=\"background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);\"><div style=\"background: linear-gradient(135deg, #4f46e5, #4338ca); padding: 28px 24px; text-align: center;\"><h1 style=\"color: #ffffff; font-size: 20px; margin: 0; font-weight: 600;\">We've received your question</h1><p style=\"color: #e0e7ff; font-size: 13px; margin: 6px 0 0;\">Ticket #{{ $json.id }}</p></div><div style=\"padding: 28px 24px;\"><p style=\"color: #374151; font-size: 14px; line-height: 1.6;\">Thanks for reaching out. A staff member will answer your question shortly, and we will send the reply to you on this channel.</p></div></div></div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -5008,
+        3344
+      ],
+      "id": "07cbd943-53f1-4c38-bd18-26e7e53bbfe6",
+      "name": "Staff Wait Email",
+      "webhookId": "11d84d90-3a2a-48e1-bb7a-89e0f1b0ab68",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME_SMTP_CREDENTIAL_ID",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.contact_id }}",
+        "text": "Thanks for your question. A staff member will answer shortly and we will send the reply here.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -5008,
+        3136
+      ],
+      "id": "391552dd-0447-455f-8321-de7c66e3ef96",
+      "name": "Staff Wait Telegram",
+      "webhookId": "ec9abd0e-5708-47b6-a4e7-a5317d02aeca",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "returnAll": true,
+        "options": {
+          "orderBy": "startTime"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -5440,
+        3824
+      ],
+      "id": "4fbd0673-b538-4f42-8901-b911589e3ed4",
+      "name": "Get Calendar Events",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_ME_GOOGLE_CALENDAR_CREDENTIAL_ID",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ticket = $('Ticket Ready').first().json;\nconst events = $input.all()\n  .map((i) => i.json)\n  .filter((e) => e && (e.start || e.end || e.id));\n\n// Keep ticket.id (UUID). Never let Google Calendar event fields overwrite it.\nif (!events.length) {\n  return [{ json: { ...ticket, ticket_id: ticket.id, busy_events: [] } }];\n}\n\nreturn [{\n  json: {\n    ...ticket,\n    ticket_id: ticket.id,\n    busy_events: events.map((e) => ({\n      id: e.id,\n      start: e.start,\n      end: e.end,\n      summary: e.summary,\n    })),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5168,
+        3824
+      ],
+      "id": "b9184127-e1fe-49ae-b7f8-9cd02c5f8b54",
+      "name": "Merge Ticket Events",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst durationMin = 30;\nconst tz = \"Asia/Istanbul\";\nconst businessStart = 9;\nconst businessEnd = 17;\n\nfunction getExtractedDatetime() {\n  for (const name of [\"Parse Gemini Response\", \"Parse Groq Response\"]) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.extracted_datetime) return d.extracted_datetime;\n    } catch (e) {}\n  }\n  return item.extracted_datetime;\n}\n\nfunction parseLocal(iso) {\n  if (!iso || iso === \"null\") return null;\n  const raw = String(iso).trim();\n  const m = raw.match(\n    /^(\\d{4})-(\\d{2})-(\\d{2})[T ](\\d{2}):(\\d{2})(?::(\\d{2}))?(?:\\.(\\d+))?(Z|[+-]\\d{2}:?\\d{2})?$/,\n  );\n  if (!m) return null;\n  const [, y, mo, d, h, mi, se] = m;\n  const seconds = se || \"00\";\n  const parsed = new Date(`${y}-${mo}-${d}T${h}:${mi}:${seconds}+03:00`);\n  return Number.isNaN(parsed.getTime()) ? null : parsed;\n}\n\nfunction toCalendarWall(d) {\n  const parts = new Intl.DateTimeFormat(\"en-CA\", {\n    timeZone: \"Asia/Istanbul\",\n    year: \"numeric\",\n    month: \"2-digit\",\n    day: \"2-digit\",\n    hour: \"2-digit\",\n    minute: \"2-digit\",\n    second: \"2-digit\",\n    hour12: false,\n  }).formatToParts(d);\n  const get = (t) => parts.find((p) => p.type === t)?.value;\n  return `${get(\"year\")}-${get(\"month\")}-${get(\"day\")}T${get(\"hour\")}:${get(\"minute\")}:00+03:00`;\n}\nfunction toIsoLocal(d) {\n  const parts = new Intl.DateTimeFormat(\"en-CA\", {\n    timeZone: tz,\n    year: \"numeric\",\n    month: \"2-digit\",\n    day: \"2-digit\",\n    hour: \"2-digit\",\n    minute: \"2-digit\",\n    second: \"2-digit\",\n    hour12: false,\n  }).formatToParts(d);\n  const get = (t) => parts.find((p) => p.type === t)?.value;\n  return `${get(\"year\")}-${get(\"month\")}-${get(\"day\")}T${get(\"hour\")}:${get(\"minute\")}:00`;\n}\n\nfunction getParts(d) {\n  const parts = new Intl.DateTimeFormat(\"en-US\", {\n    timeZone: tz,\n    weekday: \"short\",\n    hour: \"2-digit\",\n    minute: \"2-digit\",\n    hour12: false,\n  }).formatToParts(d);\n  const get = (t) => parts.find((p) => p.type === t)?.value;\n  return {\n    weekday: get(\"weekday\"),\n    hour: Number(get(\"hour\")),\n    minute: Number(get(\"minute\")),\n  };\n}\n\nconst busy = [];\nconst busyEvents = item.busy_events || [];\nfor (const ev of busyEvents) {\n  const start = ev.start?.dateTime || ev.start?.date;\n  const end = ev.end?.dateTime || ev.end?.date;\n  if (start && end)\n    busy.push({\n      start: new Date(start).getTime(),\n      end: new Date(end).getTime(),\n    });\n}\n\nfunction overlaps(s, e) {\n  return busy.some((b) => s < b.end && e > b.start);\n}\n\nfunction isBusiness(d) {\n  const p = getParts(d);\n  if ([\"Sat\", \"Sun\"].includes(p.weekday)) return false;\n  const minutes = p.hour * 60 + p.minute;\n  return (\n    minutes >= businessStart * 60 && minutes + durationMin <= businessEnd * 60\n  );\n}\n\nfunction findSlots(from, count) {\n  const slots = [];\n  let cursor = new Date(from.getTime());\n  cursor.setSeconds(0, 0);\n  const m = cursor.getMinutes();\n  if (m % 30 !== 0) cursor.setMinutes(m + (30 - (m % 30)));\n  let guard = 0;\n  while (slots.length < count && guard < 2000) {\n    guard += 1;\n    const end = new Date(cursor.getTime() + durationMin * 60000);\n    if (\n      isBusiness(cursor) &&\n      !overlaps(cursor.getTime(), end.getTime()) &&\n      cursor.getTime() > Date.now()\n    ) {\n      slots.push(toIsoLocal(cursor));\n    }\n    cursor = new Date(cursor.getTime() + 30 * 60000);\n  }\n  return slots;\n}\n\nconst requested = parseLocal(getExtractedDatetime());\nconst ticketRow = $(\"Ticket Ready\").first().json;\nconst ticketId = item.ticket_id || ticketRow.id || item.id;\nconst channel = item.channel || \"website\";\nconst customer_email = item.customer_email;\nconst contact_id =\n  item.contact_id || (channel === \"telegram\" ? customer_email : null);\nconst message = item.message || item.ticket_message;\n\nfunction followUpHint() {\n  const example = \"for example: 2026-09-14 09:30\";\n  if (channel === \"telegram\") {\n    return \"Reply in this chat with the exact date and time you want (\" + example + \").\";\n  }\n  if (channel === \"email\") {\n    return \"Reply to this email with the exact date and time you want (\" + example + \").\";\n  }\n  return \"Do not reply to this email. Open the website form again, use the SAME email address, and submit a new message with the exact date and time you want (\" + example + \").\";\n}\n\nif (!requested) {\n  return [\n    {\n      json: {\n        ...item,\n        booking_outcome: \"ask_time\",\n        outbound_text:\n          `Thanks for your booking request. Send a preferred date and time (for example: Thursday at 14:00), and we will check availability. ${followUpHint()}`,\n        ticket_id: ticketId,\n        channel,\n        customer_email,\n        contact_id,\n        duration_minutes: durationMin,\n      },\n    },\n  ];\n}\n\nconst reqStart = requested.getTime();\nconst reqEnd = reqStart + durationMin * 60000;\nconst free = isBusiness(requested) && !overlaps(reqStart, reqEnd);\n\nif (free) {\n  const startIso = toIsoLocal(requested);\n  const endIso = toIsoLocal(new Date(reqEnd));\n  return [\n    {\n      json: {\n        ...item,\n        booking_outcome: \"confirmed\",\n        confirmed_start: toCalendarWall(requested),\n        confirmed_end: toCalendarWall(new Date(reqEnd)),\n        timeZone: \"Asia/Istanbul\",\n        outbound_text: `Your appointment is reserved for ${startIso.replace(\"T\", \" \")} (Asia/Istanbul, ${durationMin} minutes). We look forward to seeing you.`,\n        ticket_id: ticketId,\n        channel,\n        customer_email,\n        contact_id,\n        duration_minutes: durationMin,\n        message,\n      },\n    },\n  ];\n}\n\nconst suggestions = findSlots(new Date(Math.max(Date.now(), reqEnd)), 2);\nconst suggestionText = suggestions.length\n  ? `That time is not available. Here are two open slots:\\n1) ${suggestions[0].replace(\"T\", \" \")}\\n2) ${suggestions[1] ? suggestions[1].replace(\"T\", \" \") : \"—\"}\\n\\nTo reserve a slot, write the exact date and time of the slot you want (do not only write \"slot 1\" or \"slot 2\"). ${followUpHint()}`\n  : `That time is not available, and we could not find open slots in the next two weeks. Please suggest another weekday between 09:00 and 17:00 (Asia/Istanbul). ${followUpHint()}`;\n\nreturn [\n  {\n    json: {\n      ...item,\n      booking_outcome: \"suggested\",\n      suggested_slots: suggestions,\n      outbound_text: suggestionText,\n      ticket_id: ticketId,\n      channel,\n      customer_email,\n      contact_id,\n      duration_minutes: durationMin,\n      requested_start: toIsoLocal(requested),\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4912,
+        3824
+      ],
+      "id": "2316f372-3703-405f-aad0-96b200ee2c20",
+      "name": "Evaluate Booking"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0c4c234f-9251-447a-be4a-f01549fdc4ab",
+                    "leftValue": "={{ $json.booking_outcome }}",
+                    "rightValue": "confirmed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0e59d2b6-421d-4eff-ba59-29889dc21581",
+                    "leftValue": "={{ $json.booking_outcome }}",
+                    "rightValue": "suggested",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "19540404-d63f-43e7-a25e-249ebbd98d84",
+                    "leftValue": "={{ $json.booking_outcome }}",
+                    "rightValue": "ask_time",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -4672,
+        3808
+      ],
+      "id": "850e55a3-bb73-41ce-8cc4-fa89b5a48e9f",
+      "name": "Booking Outcome"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "start": "={{ $json.confirmed_start }}",
+        "end": "={{ $json.confirmed_end }}",
+        "additionalFields": {
+          "description": "={{ 'Ticket ' + $json.ticket_id + ': ' + ($json.message || '') }}",
+          "summary": "Appointment"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -4368,
+        3600
+      ],
+      "id": "55396bb2-dc78-478c-84e0-6d278e36a331",
+      "name": "Create Calendar Event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "REPLACE_ME_GOOGLE_CALENDAR_CREDENTIAL_ID",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "bookings",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.ticket_id || $('Ticket Ready').item.json.id }}"
+            },
+            {
+              "fieldId": "requested_start",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.confirmed_start }}"
+            },
+            {
+              "fieldId": "confirmed_start",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.confirmed_start }}"
+            },
+            {
+              "fieldId": "duration_minutes",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.duration_minutes }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "confirmed"
+            },
+            {
+              "fieldId": "calendar_event_id",
+              "fieldValue": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4096,
+        3600
+      ],
+      "id": "31455373-1a7c-4ac3-948b-ca6e6117a095",
+      "name": "Insert Booking Confirmed",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Evaluate Booking').item.json.ticket_id || $('Ticket Ready').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "booking_confirmed"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "closed",
+              "fieldValue": "={{ true }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3856,
+        3600
+      ],
+      "id": "fdf38b76-be44-46a9-abf5-ee363531d254",
+      "name": "Update Ticket Confirmed",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "91ad877a-becf-4147-86f7-3e45467b5762",
+              "name": "outbound_text",
+              "value": "={{ $('Evaluate Booking').item.json.outbound_text }}",
+              "type": "string"
+            },
+            {
+              "id": "1a124746-edc4-4a9c-a80d-02d66544a841",
+              "name": "channel",
+              "value": "={{ $('Evaluate Booking').item.json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "ba54e2da-1172-4b2d-9bb0-312002d9f17a",
+              "name": "customer_email",
+              "value": "={{ $('Evaluate Booking').item.json.customer_email }}",
+              "type": "string"
+            },
+            {
+              "id": "3f818b47-aff8-4c9e-98b3-f51e353879e1",
+              "name": "contact_id",
+              "value": "={{ $('Evaluate Booking').item.json.contact_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -3616,
+        3600
+      ],
+      "id": "8b5e2777-ced6-484d-b3c2-a8533d2573db",
+      "name": "Prepare Confirmed Message"
+    },
+    {
+      "parameters": {
+        "tableId": "bookings",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $json.ticket_id }}"
+            },
+            {
+              "fieldId": "requested_start",
+              "fieldValue": "={{ $json.requested_start || null }}"
+            },
+            {
+              "fieldId": "duration_minutes",
+              "fieldValue": "={{ $json.duration_minutes }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "suggested"
+            },
+            {
+              "fieldId": "suggested_slots",
+              "fieldValue": "={{ JSON.stringify($json.suggested_slots || []) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4384,
+        3824
+      ],
+      "id": "256e9bd9-c288-4e35-811a-65465e839c67",
+      "name": "Insert Booking Suggested",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "bookings",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $json.ticket_id }}"
+            },
+            {
+              "fieldId": "duration_minutes",
+              "fieldValue": "={{ $json.duration_minutes }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "requested"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4384,
+        4048
+      ],
+      "id": "3c10425b-beb6-4e8b-9149-b3a3209f2193",
+      "name": "Insert Booking Requested",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@example.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "={{ $json.outbound_text.startsWith('Your appointment is reserved') ? 'Your appointment is confirmed' : 'How to choose your appointment time' }}",
+        "html": "=<div style=\"font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #f4f5f7; padding: 24px;\"><div style=\"background: #ffffff; border-radius: 12px; overflow: hidden;\"><div style=\"background: #0f766e; padding: 24px; text-align: center;\"><h1 style=\"color: #fff; font-size: 20px; margin: 0;\">Booking update</h1></div><div style=\"padding: 24px;\"><p style=\"color: #1f2937; font-size: 14px; line-height: 1.6; white-space: pre-wrap;\">{{ $json.outbound_text }}</p></div></div></div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -3648,
+        4032
+      ],
+      "id": "bce9b526-8ed2-4fbd-b27c-c4c3a3915181",
+      "name": "Booking Email",
+      "webhookId": "04d6b8bb-eced-4c18-bbb3-ee4fdebcd423",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME_SMTP_CREDENTIAL_ID",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.contact_id }}",
+        "text": "={{ $json.outbound_text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3648,
+        3840
+      ],
+      "id": "58a777ce-65e8-4480-98e8-677979f29b5f",
+      "name": "Booking Telegram",
+      "webhookId": "ce1343ea-4bff-45d2-bec5-5b9929a6efba",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/staff-reply",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -9744,
+        4448
+      ],
+      "id": "448da2a6-7584-44ba-91e8-d6c3a9d43be7",
+      "name": "Staff Reply Webhook",
+      "webhookId": "staff-reply-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $('Staff Reply Webhook').item.json.body.ticket_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -8560,
+        4336
+      ],
+      "id": "e9ada159-85f9-4cf7-ae5f-6cdfe225b6b1",
+      "name": "Get Ticket For Reply",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "943db6ec-cb09-4c0e-94fa-aa3a7f02604e",
+              "name": "reply",
+              "value": "={{ $('Staff Reply Webhook').item.json.body.reply }}",
+              "type": "string"
+            },
+            {
+              "id": "bd4f8fc0-efa1-458a-a9cf-2719b030160b",
+              "name": "ticket_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "8404d9e9-a336-47dc-b2c2-2bba427b4de8",
+              "name": "channel",
+              "value": "={{ $json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "e0ca58c9-5617-4f7a-93ae-ea9a13ff5fed",
+              "name": "customer_email",
+              "value": "={{ $json.customer_email }}",
+              "type": "string"
+            },
+            {
+              "id": "57d01b76-cc6c-4c2c-a724-b43581062445",
+              "name": "contact_id",
+              "value": "={{ $json.contact_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -8272,
+        4336
+      ],
+      "id": "31220c95-16bd-44de-8d89-b0441a610e4a",
+      "name": "Prepare Staff Reply"
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@example.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "Reply from our team",
+        "html": "=<div style=\"font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #f4f5f7; padding: 24px;\"><div style=\"background: #ffffff; border-radius: 12px; overflow: hidden;\"><div style=\"background: #111827; padding: 24px; text-align: center;\"><h1 style=\"color: #fff; font-size: 20px; margin: 0;\">Reply from our team</h1></div><div style=\"padding: 24px;\"><p style=\"color: #1f2937; font-size: 14px; line-height: 1.6; white-space: pre-wrap;\">{{ $json.reply }}</p></div></div></div>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -7632,
+        4448
+      ],
+      "id": "1b6a0720-03b7-4436-b109-2de741eec7f7",
+      "name": "Staff Reply Email",
+      "webhookId": "2abbaeab-58b5-446c-9b91-b19a8ae74891",
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME_SMTP_CREDENTIAL_ID",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.contact_id }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -7632,
+        4224
+      ],
+      "id": "59ce2ae4-c8af-45b1-a54a-b6f0b9a8a326",
+      "name": "Staff Reply Telegram",
+      "webhookId": "34370a68-35ec-43d6-a97a-57b0633dba04",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Prepare Staff Reply').item.json.ticket_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "resolved"
+            },
+            {
+              "fieldId": "staff_reply",
+              "fieldValue": "={{ $('Prepare Staff Reply').item.json.reply }}"
+            },
+            {
+              "fieldId": "suggested_reply",
+              "fieldValue": "={{ $('Prepare Staff Reply').item.json.reply }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -7024,
+        4320
+      ],
+      "id": "78aa4fb9-afdb-4ca3-9152-b9cad1a8e4a7",
+      "name": "Mark Ticket Resolved",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9b377061-f832-43f2-8e7b-e020d8b6e70f",
+              "name": "outbound_text",
+              "value": "={{ $('Evaluate Booking').item.json.outbound_text }}",
+              "type": "string"
+            },
+            {
+              "id": "c91be42e-ede8-4467-a672-a86896ad9ef2",
+              "name": "channel",
+              "value": "={{ $('Evaluate Booking').item.json.channel }}",
+              "type": "string"
+            },
+            {
+              "id": "c9818d20-57f7-46c1-bae2-4d6ce4f94cf0",
+              "name": "customer_email",
+              "value": "={{ $('Evaluate Booking').item.json.customer_email }}",
+              "type": "string"
+            },
+            {
+              "id": "ade248e2-f3fb-44ff-91b8-d864b6d414d0",
+              "name": "contact_id",
+              "value": "={{ $('Evaluate Booking').item.json.contact_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -4096,
+        3936
+      ],
+      "id": "5591079a-994c-4554-9165-ba49dc6908fa",
+      "name": "Prepare Booking Message"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b70f99c6-91f7-4753-b389-38be54109202",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -3888,
+        3936
+      ],
+      "id": "02984ac4-71e8-4371-9aaa-a0a24a521e01",
+      "name": "Booking Channel"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a3fd3c3d-1601-4498-a23b-c0e02d6cbec6",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -7824,
+        3536
+      ],
+      "id": "1dfaaba4-02da-4ea7-be6d-6f9b25d3b9ca",
+      "name": "Lookup Identity"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "tickets",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "channel",
+              "condition": "eq",
+              "keyValue": "telegram"
+            },
+            {
+              "keyName": "contact_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.contact_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -7504,
+        3360
+      ],
+      "id": "658e9442-03b3-4e09-ac3f-35be9687767b",
+      "name": "Find Ticket Telegram",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "tickets",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "channel",
+              "condition": "eq",
+              "keyValue": "={{ $json.channel }}"
+            },
+            {
+              "keyName": "customer_email",
+              "condition": "eq",
+              "keyValue": "={{ $json.customer_email }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -7504,
+        3552
+      ],
+      "id": "041191bb-1eb1-4cea-afa1-85cc4f5861fe",
+      "name": "Find Ticket Email",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function getParsed() {\n  for (const name of ['Parse Gemini Response', 'Parse Groq Response']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.ticket_message !== undefined) return d;\n    } catch (e) {}\n  }\n  return {};\n}\n\nconst parsed = getParsed();\nconst found = $input.all()\n  .map((i) => i.json)\n  .filter((row) => row && row.id && row.message !== undefined);\nfound.sort((a, b) => {\n  const aTime = Date.parse(a.updated_at || a.created_at || 0);\n  const bTime = Date.parse(b.updated_at || b.created_at || 0);\n  return bTime - aTime;\n});\nconst existing = found.find((row) => row.closed !== true) || null;\nconst identity = parsed.channel === 'telegram'\n  ? String(parsed.contact_id || '').trim()\n  : String(parsed.customer_email || '').trim();\nconst canReuse = Boolean(identity && existing);\n\nlet nextIntent = parsed.intent;\nlet nextStatus = parsed.intent === 'spam'\n  ? 'spam'\n  : (parsed.intent === 'booking'\n    ? 'booking_pending'\n    : (parsed.answer_source === 'faq' ? 'auto_resolved' : 'pending_staff'));\n\nif (canReuse && parsed.intent === 'spam' && existing.status && existing.status !== 'spam') {\n  nextIntent = existing.intent;\n  nextStatus = existing.status;\n}\n\nreturn [{\n  json: {\n    ...parsed,\n    existing_ticket_id: canReuse ? existing.id : null,\n    existing_status: canReuse ? existing.status : null,\n    next_intent: nextIntent,\n    next_status: nextStatus,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -7200,
+        3456
+      ],
+      "id": "d482b039-fc69-43e1-b60b-b91945f0b10d",
+      "name": "Resolve Thread",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1f0d2bfe-0305-49a7-95af-6f0382dbb167",
+              "leftValue": "={{ $json.existing_ticket_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -6976,
+        3456
+      ],
+      "id": "a6dc24b5-1a54-4172-b878-385043d36798",
+      "name": "Has Existing Ticket"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.existing_ticket_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "message",
+              "fieldValue": "={{ $json.ticket_message }}"
+            },
+            {
+              "fieldId": "intent",
+              "fieldValue": "={{ $json.next_intent }}"
+            },
+            {
+              "fieldId": "answer_source",
+              "fieldValue": "={{ $json.answer_source }}"
+            },
+            {
+              "fieldId": "extracted_datetime",
+              "fieldValue": "={{ $json.extracted_datetime || null }}"
+            },
+            {
+              "fieldId": "suggested_reply",
+              "fieldValue": "={{ $json.reply_if_question }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.next_status }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            },
+            {
+              "fieldId": "closed",
+              "fieldValue": "={{ $json.next_status === 'auto_resolved' }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6720,
+        3280
+      ],
+      "id": "75551397-c85a-4788-add4-124a9891bbfb",
+      "name": "Update Ticket Thread",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ticket_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $json.id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "customer"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $json.message }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -6432,
+        3424
+      ],
+      "id": "25e0ca0b-3a24-497b-b802-75933fb2b2f3",
+      "name": "Insert Customer Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function getParsed() {\n  for (const name of ['Parse Gemini Response', 'Parse Groq Response']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.ticket_message !== undefined) return d;\n    } catch (e) {}\n  }\n  return {};\n}\nfunction getTicket() {\n  for (const name of ['Update Ticket Thread', 'Create a row']) {\n    try {\n      const d = $(name).first().json;\n      if (d && d.id) return d;\n    } catch (e) {}\n  }\n  return {};\n}\nconst parsed = getParsed();\nconst ticket = getTicket();\nconst resolved = $('Resolve Thread').first().json;\nreturn [{\n  json: {\n    ...parsed,\n    ...ticket,\n    id: ticket.id,\n    ticket_id: ticket.id,\n    message: parsed.ticket_message || ticket.message,\n    intent: resolved.next_intent || parsed.intent || ticket.intent,\n    status: resolved.next_status || ticket.status,\n    suggested_reply: parsed.reply_if_question || ticket.suggested_reply,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -6176,
+        3424
+      ],
+      "id": "73b5ec15-62b8-406f-8de1-79368762dea6",
+      "name": "Ticket Ready"
+    },
+    {
+      "parameters": {
+        "tableId": "ticket_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $('Ticket Ready').item.json.id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "bot"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $('Ticket Ready').item.json.suggested_reply }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4720,
+        2736
+      ],
+      "id": "4683e6fe-d884-4ade-b881-7afe3db7e298",
+      "name": "Log FAQ Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ticket_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $('Ticket Ready').item.json.id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "bot"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "Thanks for your question. A staff member will answer shortly and we will send the reply here."
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4720,
+        3232
+      ],
+      "id": "3dcd5ffa-4630-472f-bd24-a88eee99ed70",
+      "name": "Log Staff Wait Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ticket_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.ticket_id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "bot"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $('Evaluate Booking').item.json.outbound_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3408,
+        3936
+      ],
+      "id": "525463eb-d5bc-4c82-828e-7a2017e433ba",
+      "name": "Log Booking Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ticket_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "ticket_id",
+              "fieldValue": "={{ $('Prepare Staff Reply').item.json.ticket_id }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "staff"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $('Prepare Staff Reply').item.json.reply }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -7280,
+        4320
+      ],
+      "id": "de2166ae-8b4a-4d84-b035-b17380ef47a3",
+      "name": "Log Staff Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "REPLACE_ME_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://your-project-ref.supabase.co/auth/v1/user",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ $json.headers.authorization || $json.headers.Authorization }}"
+            },
+            {
+              "name": "apikey",
+              "value": "REPLACE_ME_SUPABASE_ANON_KEY"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -9472,
+        4448
+      ],
+      "id": "2f2112dd-c159-43f5-b715-dd0ab9b7f72c",
+      "name": "Validate Staff Session",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c3cb799-b568-4a33-9e93-a3a09963102d",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -9232,
+        4448
+      ],
+      "id": "5faab4a2-4bf9-44d2-a50d-9bf6766a5e3c",
+      "name": "Staff Token Valid"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"error\": \"Unauthorized\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -8912,
+        4560
+      ],
+      "id": "b22fd852-7c17-4dd8-85dd-7e284afa3d0d",
+      "name": "Unauthorized Staff Reply"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"ok\": true\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -6768,
+        4320
+      ],
+      "id": "12e61068-e55f-46df-8d95-355ce9343e08",
+      "name": "Staff Reply Done"
+    },
+    {
+      "parameters": {
+        "content": "## 1. Intake\nReceives messages from three channels (website form, Gmail inbox, Telegram bot) and normalizes each into the same shape: ticket_message, customer_email, contact_id, channel.\n",
+        "height": 720,
+        "width": 528,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -10064,
+        3184
+      ],
+      "id": "22fa53f6-5970-4dd2-ae32-8b60a9382bdb",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## 2. AI Classification (Primary)\nClassifies the message as question/booking/spam. For questions, checks the FAQ knowledge base first. answers directly if a match exists, otherwise flags for staff. For bookings, extracts a normalized date/time.\n",
+        "height": 720,
+        "width": 480,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -9472,
+        3264
+      ],
+      "id": "542f3842-6a1a-4b2e-a626-6d60fd8febb6",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 3. Fallback: Groq\nIf Gemini fails, manually re-runs the FAQ search and rebuilds an equivalent prompt for Groq, keeping the same output shape so nothing downstream needs to change.\n",
+        "height": 464,
+        "width": 720
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -8944,
+        3568
+      ],
+      "id": "cfd573e5-0123-474b-87e3-86c0716b7272",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## 4. Thread Deduplication\nChecks if this contact already has an open ticket (by Telegram contact_id or email). If so, appends the new message to that thread instead of creating a duplicate ticket.\n",
+        "height": 544,
+        "width": 1840,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -7888,
+        3184
+      ],
+      "id": "ba09b2a3-7b86-44c2-86c5-81a92ea86432",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## 5. Route by Intent\nSends the ticket down one of three paths based on classified intent: question (FAQ or staff), booking (calendar check), or spam (dropped).\n",
+        "height": 368,
+        "width": 224,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5936,
+        3216
+      ],
+      "id": "76722ef2-6aa0-46e9-bff3-9e7a98897678",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## 6. FAQ Auto-Answer\nSends the FAQ-sourced answer straight back to the customer on their original channel, and logs it in ticket_messages.",
+        "height": 512,
+        "width": 816,
+        "color": "#004D09"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5344,
+        2512
+      ],
+      "id": "c283d57e-cc92-4259-a8c0-71fde954bab2",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## 7. Staff Escalation (Hold)\nTells the customer a staff member will follow up, on whichever channel they used, and logs the holding message.",
+        "height": 448,
+        "width": 816,
+        "color": "#615E00"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5344,
+        3056
+      ],
+      "id": "f74ad95b-4064-4cf3-918e-27b5a6049f30",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## 8. Booking: Calendar Check\nPulls existing calendar events, checks the requested time against business hours (9-17, weekdays) and existing bookings. Confirms if free, or computes 2 alternative open slots if not.",
+        "height": 704,
+        "width": 2272
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5488,
+        3520
+      ],
+      "id": "6be6b803-b3ba-4690-8bc4-3b55fdabcf8e",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## 9a. Receive + Authenticate\nStaff submit a reply via webhook, carrying their Supabase session token. The token is validated against Supabase's own auth API before anything else happens, rejects with 401 if missing or invalid.",
+        "height": 448,
+        "width": 1056
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -9792,
+        4272
+      ],
+      "id": "9324a580-e6e1-4df9-ba32-637ea0e98073",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "content": "## 9b. Look Up the Ticket\nOnce the staff member is verified, fetches the original ticket by ID and prepares the reply payload (channel, contact info, reply text).",
+        "height": 288,
+        "width": 528,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -8624,
+        4208
+      ],
+      "id": "9f8f9aba-e716-4932-8e92-647ddb42f0b1",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "content": "## 9c. Send the Reply\nRoutes the staff's reply back to the customer on whichever channel they originally used  (Telegram message or email).",
+        "height": 480,
+        "width": 624,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -8000,
+        4128
+      ],
+      "id": "96e713fe-596c-438f-a881-07422870db70",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## 9d. Log + Close\nRecords the staff reply in ticket_messages, marks the ticket as resolved in Supabase, and responds 200 OK back to the dashboard.",
+        "height": 272,
+        "width": 752,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -7312,
+        4208
+      ],
+      "id": "2017eb12-5164-4acc-bf0c-96fa4b5b5c96",
+      "name": "Sticky Note11"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Data Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Website": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Email": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vector Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Google Gemini1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Vector Search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Prepare Groq Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Groq Body": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Lookup Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Lookup Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Insert Customer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Answer Source",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Calendar Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Source": {
+      "main": [
+        [
+          {
+            "node": "FAQ Channel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Staff Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAQ Channel": {
+      "main": [
+        [
+          {
+            "node": "FAQ Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FAQ Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Channel": {
+      "main": [
+        [
+          {
+            "node": "Staff Wait Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Staff Wait Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Calendar Events": {
+      "main": [
+        [
+          {
+            "node": "Merge Ticket Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Ticket Events": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Booking": {
+      "main": [
+        [
+          {
+            "node": "Booking Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Outcome": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Booking Suggested",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Booking Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Insert Booking Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Booking Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Update Ticket Confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Ticket Confirmed": {
+      "main": [
+        [
+          {
+            "node": "Prepare Confirmed Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Confirmed Message": {
+      "main": [
+        [
+          {
+            "node": "Booking Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Booking Suggested": {
+      "main": [
+        [
+          {
+            "node": "Prepare Booking Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Booking Requested": {
+      "main": [
+        [
+          {
+            "node": "Prepare Booking Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Reply Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Staff Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Ticket For Reply": {
+      "main": [
+        [
+          {
+            "node": "Prepare Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Staff Reply": {
+      "main": [
+        [
+          {
+            "node": "Staff Reply Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Reply Channel": {
+      "main": [
+        [
+          {
+            "node": "Staff Reply Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Staff Reply Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Reply Telegram": {
+      "main": [
+        [
+          {
+            "node": "Log Staff Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Reply Email": {
+      "main": [
+        [
+          {
+            "node": "Log Staff Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Booking Message": {
+      "main": [
+        [
+          {
+            "node": "Booking Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Channel": {
+      "main": [
+        [
+          {
+            "node": "Booking Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Booking Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Identity": {
+      "main": [
+        [
+          {
+            "node": "Find Ticket Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Ticket Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Ticket Telegram": {
+      "main": [
+        [
+          {
+            "node": "Resolve Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Ticket Email": {
+      "main": [
+        [
+          {
+            "node": "Resolve Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Thread": {
+      "main": [
+        [
+          {
+            "node": "Has Existing Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Existing Ticket": {
+      "main": [
+        [
+          {
+            "node": "Update Ticket Thread",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Ticket Thread": {
+      "main": [
+        [
+          {
+            "node": "Insert Customer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Customer Message": {
+      "main": [
+        [
+          {
+            "node": "Ticket Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket Ready": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAQ Telegram": {
+      "main": [
+        [
+          {
+            "node": "Log FAQ Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FAQ Email": {
+      "main": [
+        [
+          {
+            "node": "Log FAQ Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Wait Telegram": {
+      "main": [
+        [
+          {
+            "node": "Log Staff Wait Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Wait Email": {
+      "main": [
+        [
+          {
+            "node": "Log Staff Wait Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Telegram": {
+      "main": [
+        [
+          {
+            "node": "Log Booking Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Booking Email": {
+      "main": [
+        [
+          {
+            "node": "Log Booking Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Staff Message": {
+      "main": [
+        [
+          {
+            "node": "Mark Ticket Resolved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Staff Session": {
+      "main": [
+        [
+          {
+            "node": "Staff Token Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Staff Token Valid": {
+      "main": [
+        [
+          {
+            "node": "Get Ticket For Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unauthorized Staff Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Ticket Resolved": {
+      "main": [
+        [
+          {
+            "node": "Staff Reply Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "id": "ticket-triage-workflow",
+  "tags": []
+}
